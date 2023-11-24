@@ -1,0 +1,235 @@
+---
+title: "Final Project"
+author: "Ziqi Wang 905198360"
+date: "12/2/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(corrplot)
+library(car)
+library(knitr)
+library(plot.matrix)
+library(class)
+library(MASS)
+library(leaps)
+library(caret)
+library(nnet)
+library(dplyr)
+library(randomForest)
+library(gbm)
+library(glmnet)
+library(lubridate)
+
+```
+
+```{r}
+testing <- read.csv("test.csv")
+training <- read.csv("training.csv")
+training$PublishedDate <- mdy_hm(training$PublishedDate)
+training$month <- month(training$PublishedDate)
+training$day<- day(training$PublishedDate)
+training$hour<- hour(training$PublishedDate)
+training$minute<- minute(training$PublishedDate)
+
+testing$PublishedDate <- mdy_hm(testing$PublishedDate)
+testing$month <- month(testing$PublishedDate)
+testing$day<- day(testing$PublishedDate)
+testing$hour<- hour(testing$PublishedDate)
+testing$minute<- minute(testing$PublishedDate)
+
+
+set.seed(123456)
+index <- sample(seq_len(nrow(training)), size = 0.8 * nrow(training))
+train <- training[index,-c(1,2)]
+train <- na.omit(train)
+test <- training[-index,]
+
+```
+
+```{r}
+#get rid of factors with correlation higher than 0.9 to avoid high collinearity
+
+cor <- abs(cor(train$growth_2_6,train[,-258]))
+
+pick <-  which(cor > 0.15)
+high_cor <- colnames(train)[pick]
+
+
+
+correlationMatrix <- cor(train[,pick])
+
+high_var <- c("cnn_17", "cnn_89", "avg_growth_low", "punc_num_..28", "avg_growth_low_mid", "views_2_hours" , "doc2vec_3", "doc2vec_7", "avg_growth_mid_high", "Num_Subscribers_Base_low_mid" , "cnn_25","cnn_88","doc2vec_18", "hog_676", "doc2vec_11" , "hog_797","Duration")
+
+
+
+x <- c(high_var, high_cor, y)
+length(x)
+for (i in 1:length(x)){
+  for (j in 1:(i-1)) {
+    if (x[i] == x[j]){
+      x[i] = 0
+      break
+    }
+  }
+}
+
+x <- x[-which(x == 0)]
+x
+dim(train[,x])
+train$punc_num
+set.seed(7)
+correlationMatrix <- cor(train[,x])
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.8)
+cor(train[,x[highlyCorrelated]])
+x <- x[-highlyCorrelated]
+
+```
+
+```{r}
+model1 <- glm(train$growth_2_6 ~ ., data = train)
+a <- summary(model1)
+```
+
+```{r}
+library(gbm)
+set.seed(123)
+power <- seq(-10, -0.2, by = 0.1)
+lambda <- 10^power
+trainMSE <- rep(NA, length(lambda))
+for (i in 1:length(lambda)){
+  boost <- gbm(growth_2_6~., data = train, distribution = "gaussian", n.trees = 1000, shrinkage = lambda[i], verbose = FALSE, bag.fraction = 0.5, train.fraction = 0.5,cv.folds = 3,interaction.depth = 5)
+  pred.train <- predict(boost, train, n.trees = 1000)
+  trainMSE[i] <- mean((pred.train - train$growth_2_6)^2)
+}
+plot(lambda, trainMSE, type = "b", xlab = "Shrinkage Value", ylab = "Training MSE")
+min(trainMSE)
+lambda[which.min(trainMSE)]
+
+model_gbm <- gbm(growth_2_6~., data = train, distribution = "gaussian", n.trees = 1000,  shrinkage = lambda[which.min(trainMSE)])
+ summary(model_gbm)
+
+
+
+ 
+# model_gbm <- gbm(growth_2_6~cnn_17 + cnn_89 + avg_growth_low + punc_num_..28 + avg_growth_low_mid + views_2_hours + doc2vec_3 + doc2vec_7 + avg_growth_mid_high + Num_Subscribers_Base_low_mid + cnn_25 + cnn_88 + doc2vec_18 + hog_676 + doc2vec_11 + hog_797 + Duration, data = train, distribution = "gaussian", n.trees = 1000, shrinkage = lambda[which.min(trainMSE)])
+
+yhat.gbm <- predict(model_gbm, newdata = test)
+mean((yhat.gbm - test$growth_2_6)^2)
+```
+
+```{r}
+library(glmnet)
+X <- model.matrix(growth_2_6~., data = train[,c(x,"growth_2_6")])
+x.test <- model.matrix(growth_2_6~., data = test[,c(x,"growth_2_6")])
+y <- train$growth_2_6
+model2 <- glmnet(X,y, alpha = 0)
+summary(model2)
+pred2 <- predict(model2, s = 0.01, newx = x.test)
+mean((pred2 - test$growth_2_6)^2)
+
+
+```
+
+
+```{r}
+library(randomForest)
+model_b <- randomForest(growth_2_6~., data = train, mtry = 262, ntree= 2000, importance = TRUE) # 2.10
+yhatb <- predict(model_b, newdata = test)
+MSEb <- mean((yhatb - test$growth_2_6)^2) 
+MSEb
+summary(importance(model_b))
+target <- which(importance(model_b)[,1]>4& importance(model_b)[,2]>80)
+  
+
+target <- rownames(importance(model_b))[target]
+target
+
+y <- which(importance(model_b)[,1]>mean(importance(model_b)[,1])& importance(model_b)[,2]>mean(importance(model_b)[,2]))
+y <- rownames(importance(model_b))[y]
+
+
+set.seed(123)
+model_1987 <- randomForest(growth_2_6~., data = train[,c(y,"growth_2_6")], mtry = 262/3, ntree = 500) # 1.988
+yhat.bag <- predict(model_forest, newdata = test)
+mean((yhat.bag - test$growth_2_6)^2)
+
+x
+```
+
+```{r}
+target <- which(importance(model_b)[,1]>mean(importance(model_b)[,1]) & importance(model_b)[,2]>mean(importance(model_b)[,2]))
+  
+target <- rownames(importance(model_b))[target]
+target
+
+set.seed(123)
+model_1987 <- randomForest(growth_2_6~., data = train[,c(target,"growth_2_6")], mtry = 262, ntree = 500) # 1.988
+yhat.bag <- predict(model_forest, newdata = test)
+mean((yhat.bag - test$growth_2_6)^2)
+
+m <- seq(87, 262, by = 10)
+trainMSE <- rep(NA, length(m))
+for (i in 1:length(m)){
+  set.seed(123)
+  model_forest <- randomForest(growth_2_6~., data = train[,c(target,"growth_2_6")], mtry = m[i], ntree = 1000) # 2.05
+  yhat.bag <- predict(model_forest, newdata = test)
+  trainMSE[i] <- mean((yhat.bag - test$growth_2_6)^2)
+}
+model_forest1 <- randomForest(growth_2_6~., data = train[,c(x,"growth_2_6")], mtry = 87, ntree = 500)
+model_forest15 <- randomForest(growth_2_6~., data = train[,c(target,"growth_2_6")], mtry = m[i], ntree = 1500)
+model_forest2 <- randomForest(growth_2_6~., data = train[,c(target,"growth_2_6")], mtry = m[i], ntree = 2000)
+trainMSE
+plot(m, trainMSE, type = "b", xlab = "mtry", ylab = "Training MSE")
+min(trainMSE)
+m[which.min(trainMSE)]
+
+yhat.bag <- predict(model_forest1, newdata = test)
+mean((yhat.bag - test$growth_2_6)^2)
+
+```
+
+## nimade
+```{r}
+m <- seq(66, 258, by = 10)
+n <- seq(500,2500, by  = 500)
+trainMSE <- matrix(NA, nrow = length(m), ncol=length(n))
+for (i in 1:length(m)){
+  for (j in 1:length(n)){
+    set.seed(123)
+    model_forest <- randomForest(growth_2_6~., data = train[,c(x,"growth_2_6")], mtry = m[i], ntree = n[j]) # 2.05
+    yhat.bag <- predict(model_forest, newdata = test)
+    trainMSE[i,j] <- mean((yhat.bag - test$growth_2_6)^2)
+  }
+}
+trainMSE
+plot(m, trainMSE, type = "b", xlab = "mtry", ylab = "Training MSE")
+min(trainMSE)
+m[which.min(trainMSE)]
+
+model_forest <- randomForest(growth_2_6~., data = train[,c(x,"growth_2_6")], mtry = 186, ntree = 2000)
+yhat.bag <- predict(model_forest, newdata = test)
+mean((yhat.bag - test$growth_2_6)^2)
+```
+## Ada boost
+```{r}
+set.seed(123)
+train_control <- trainControl(method="cv", number = 5, 
+                              classProbs = TRUE, 
+                              savePredictions = TRUE)
+tunegrid <- expand.grid(nIter=c(100, 200, 300), method=c('real', 'M1'))
+ada.tree <- train(growth_2_6~., data = train, method = 'adaboost',
+                         trControl = train_control) 
+plot(ada.tree)
+
+```
+
+```{r}
+result <- predict(model_forest,testing)
+id <- testing$id
+sol <- cbind(id, "growth_2_6" = result)
+write.csv(sol, "1987output.csv", row.names = F)
+```

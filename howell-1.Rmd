@@ -1,0 +1,155 @@
+---
+title: "howell-1"
+author: "Haoyu Su 505117747"
+date: "2020/12/3"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup_2}
+setwd("D:/DT/2020 Fall/STATS101C/projects/FINAL")
+```
+
+```{r library, warning=FALSE}
+library(caret)
+library(glmnet)
+library(dplyr)
+library(ggplot2)
+library(rpart)
+library(ipred)
+library(e1071)
+library(mlbench)
+```
+
+```{r data read_in}
+youtube <- read.csv("training.csv")
+test <- read.csv("test.csv")
+```
+
+```{r data partition}
+set.seed(123)
+part_index <- createDataPartition(
+  y = youtube$growth_2_6,
+  p = 0.8,
+  list = FALSE
+)
+yt_train <- youtube[part_index, ]
+yt_test <- youtube[-part_index, ]
+
+#x <- yt_train[, 1:259]
+#y <- yt_train[, 260]
+```
+
+
+```{r select the best predictors}
+# yt_bagging <- bagging(
+#   
+#   formula = growth_2_6~.,
+#   data = yt_train,
+#   nbagg = 100,
+#   coob = TRUE,
+#   control = rpart.control(minsplit = 2, cp = 0)
+# 
+# ) 
+```
+
+```{r caret ridge regression and best predictors}
+yt_ridge_all <- train(growth_2_6~.,
+                      data = yt_train,
+                      method = "bridge")
+```
+
+
+```{r caret RandomForest best predictors}
+set.seed(123)
+mtry <- sqrt(ncol(x))
+tunegrid <- expand.grid(.mtry = mtry)
+yt_rf_all <- train(growth_2_6~., 
+                   data = yt_train,
+                   method = "rf",
+                   tuneGrid = tunegrid
+                   )
+
+var_rf <- varImp(yt_rf_all, scale = F)
+#ggplot(var_rf)
+print(var_rf)
+
+rf_imp_chart <- var_rf$importance
+rf_imp_chart <- rf_imp_chart %>% arrange(desc(Overall))
+rf_impvar <- row.names(rf_imp_chart)[1:50]
+
+yt_train_rf <- as.data.frame(yt_train[, rf_impvar])
+yt_train_rf$growth_2_6 <- yt_train$growth_2_6
+
+mtry_min <- sqrt(ncol(yt_train_rf)-1)
+tunegrid_min <- expand.grid(.mtry = mtry_min)
+yt_rf_min <- train(growth_2_6~.,
+                   data = yt_train_rf,
+                   method = "rf",
+                   tuneGrid = tunegrid_min)
+
+```
+
+```{r random forest performance eval}
+yhat_rf_full <- predict(yt_rf_all, yt_test)
+
+
+
+yhat_rf_min <- predict(yt_rf_min, yt_test)
+mean((yhat_rf_min - yt_test$growth_2_6)^2)
+```
+
+```{r output}
+result <- predict(yt_rf_all,test)
+id <- test$id
+sol <- cbind(id, "growth_2_6" = result)
+write.csv(sol, "output-1.csv", row.names = F)
+```
+
+
+
+
+
+
+
+
+
+
+```{r month_day conversion}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
